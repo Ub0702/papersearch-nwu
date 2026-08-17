@@ -1,5 +1,8 @@
 # PaperSearch
 
+[![CI](https://github.com/Ub0702/papersearch-nwu/actions/workflows/ci.yml/badge.svg)](https://github.com/Ub0702/papersearch-nwu/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/Ub0702/papersearch-nwu/blob/main/LICENSE)
+
 > 学术论文检索 + 学术级翻译 —— 输入关键词，聚合检索国外论文，输出**术语一致的中英双语对照**。
 
 PaperSearch 解决研究生/本科生的文献阅读痛点：查文献要跨多个数据库，读外文文献被专业术语卡住。
