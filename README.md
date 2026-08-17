@@ -28,6 +28,12 @@ ollama pull qwen2.5:7b                   # 一次性：下载模型
 ollama serve                             # 启动服务
 python -m papersearch "medical image segmentation" --translate
 
+# 3.1 国内网络拉取模型超时的解决办法
+#     registry.ollama.ai 在国内需代理。先启动代理，再设置环境变量后重启 Ollama：
+setx HTTPS_PROXY http://127.0.0.1:7897   # Windows，端口换成你的代理端口
+setx HTTP_PROXY  http://127.0.0.1:7897
+# 然后完全退出 Ollama（含托盘图标）再重新打开，最后 ollama pull qwen2.5:7b
+
 # 4. 使用 OpenAI 兼容 API
 export PAPERSEARCH_API_KEY=sk-xxx        # Windows: set PAPERSEARCH_API_KEY=sk-xxx
 python -m papersearch "diffusion model" --engine openai --model gpt-4o-mini
