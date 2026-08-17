@@ -2,8 +2,11 @@
 
 [![CI](https://github.com/Ub0702/papersearch-nwu/actions/workflows/ci.yml/badge.svg)](https://github.com/Ub0702/papersearch-nwu/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/Ub0702/papersearch-nwu/blob/main/LICENSE)
+[![Online Demo](https://img.shields.io/badge/%E5%9C%A8%E7%BA%BF%E4%BD%93%E9%AA%8C-Streamlit-FF4B4B.svg)](https://papersearch-nwu-nfruh355rcscgrsqboa3ms.streamlit.app/)
 
 > 学术论文检索 + 学术级翻译 —— 输入关键词，聚合检索国外论文，输出**术语一致的中英双语对照**。
+
+> 在线体验：**[papersearch-nwu.streamlit.app](https://papersearch-nwu-nfruh355rcscgrsqboa3ms.streamlit.app/)** —— 浏览器打开即用，无需安装任何东西
 
 PaperSearch 解决研究生/本科生的文献阅读痛点：查文献要跨多个数据库，读外文文献被专业术语卡住。
 本项目把「检索」与「翻译」串成一条流水线，并用**学术术语表**保证专业名词的译名全程一致。
