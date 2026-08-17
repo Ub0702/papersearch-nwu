@@ -1,0 +1,9 @@
+# PaperSearch 依赖
+# 核心（必须）
+requests>=2.31.0
+
+# Web UI（可选：pip install streamlit）
+streamlit>=1.32.0
+
+# 开发与测试
+pytest>=8.0.0
