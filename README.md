@@ -13,6 +13,28 @@ PaperSearch 解决研究生/本科生的文献阅读痛点：查文献要跨多�
 - **双语对照输出**：Markdown / HTML，逐段原文 + 译文对照，公式与引用原样保留
 - **两种入口**：命令行 CLI + Streamlit Web UI
 
+## 效果演示
+
+真实运行（本地 Ollama + qwen2.5:7b，RTX 4060）：
+
+```bash
+$ python -m papersearch "graph neural network" -n 3 --translate
+[info] 检索中（OpenAlex + Semantic Scholar + arXiv）...
+[info] OpenAlex      : 3 篇
+[info] SemanticSchola: 0 篇（限流跳过，已自动兜底）
+[info] arXiv         : 3 篇
+[info] 翻译引擎: ollama (qwen2.5:7b)
+[info] 已输出: output/graph_neural_network.html / .md / .json
+```
+
+翻译效果（论文摘要，中文为 qwen2.5:7b 生成）：
+
+> **英文**：We propose a novel framework that systematically converts past model design experience into structured, fine-grained knowledge priors well-suited for meta-learning with LLMs. By constructing a solid meta-knowledge between unseen graph understanding and known effective architecture patterns, DesiGNN can deliver top-5.77% initial model proposals for unseen datasets within seconds.
+>
+> **中文**：我们提出了 DesiGNN，一种以知识为中心的框架，系统地将过去的设计经验转换为结构化、细致的知识先验，以适应大规模语言模型（LLMs）的元学习。通过在未知图理解与已知有效架构模式之间构建坚实的元知识，DesiGNN 可在几秒钟内为未知数据集提供排名前 5.77% 的初始模型提案。
+
+术语一致性由术语表保证：`GNN → 图神经网络`、`LLM → 大规模语言模型`、`MADRL → 多智能体深度强化学习`、`FL → 联邦学习`、`AoI → 信息年龄`、`RSU → 路侧单元`——全文译名统一，不随模型措辞漂移。
+
 ## 快速开始
 
 ```bash
