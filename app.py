@@ -65,7 +65,8 @@ search_clicked = col2.button("搜索", type="primary", use_container_width=True)
 if search_clicked or (query and st.session_state.last_query == query and st.session_state.papers):
     if search_clicked:
         with st.spinner("检索中（OpenAlex + Semantic Scholar + arXiv）..."):
-            st.session_state.papers = search_all(query, limit_per_source=max(top_n * 2, 10))[:top_n]            st.session_state.translated = {}
+            st.session_state.papers = search_all(query, limit_per_source=max(top_n * 2, 10))[:top_n]
+            st.session_state.translated = {}
             st.session_state.last_query = query
     papers: list[Paper] = st.session_state.papers
 
