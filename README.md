@@ -133,7 +133,7 @@ python -m papersearch "your query" --translate --glossary my_glossary.json
 
 ```bash
 pip install pytest
-pytest
+python -m pytest        # 或直接 pytest（根目录 conftest.py 保证包可导入）
 ```
 
 ## License
