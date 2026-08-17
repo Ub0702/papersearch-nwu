@@ -8,11 +8,12 @@
 
 from __future__ import annotations
 
+import os
+
 import streamlit as st
 
 from papersearch.glossary import Glossary
 from papersearch.models import Paper
-from papersearch.output import paper_to_markdown, write_output
 from papersearch.search import search_all
 from papersearch.translate import get_translator, translate_with_glossary
 
@@ -37,18 +38,21 @@ with st.sidebar:
     st.caption("学术论文检索 + 学术级翻译")
     st.divider()
     st.markdown("### 翻译引擎")
-    engine = st.selectbox("引擎", ["ollama", "openai", "deepl"], index=0)
+    # 云端部署支持：Streamlit Secrets 注入的 PAPERSEARCH_API_KEY / BASE_URL 会自动生效
+    default_api_key = os.environ.get("PAPERSEARCH_API_KEY", "")
+    default_base_url = os.environ.get("PAPERSEARCH_BASE_URL", "https://api.openai.com/v1")
+    engine = st.selectbox("引擎", ["ollama", "openai", "deepl"], index=1 if default_api_key else 0)
     if engine == "ollama":
         model = st.text_input("模型", value="qwen2.5:7b")
         base_url = st.text_input("Ollama 地址", value="http://localhost:11434")
         api_key = None
     elif engine == "openai":
-        model = st.text_input("模型", value="gpt-4o-mini")
-        base_url = st.text_input("Base URL", value="https://api.openai.com/v1")
-        api_key = st.text_input("API Key", type="password")
+        model = st.text_input("模型", value=os.environ.get("PAPERSEARCH_MODEL", "gpt-4o-mini"))
+        base_url = st.text_input("Base URL", value=default_base_url)
+        api_key = st.text_input("API Key", type="password", value=default_api_key)
     else:
         model, base_url = None, "https://api-free.deepl.com/v2"
-        api_key = st.text_input("DeepL Auth Key", type="password")
+        api_key = st.text_input("DeepL Auth Key", type="password", value=default_api_key)
     translate_on = st.toggle("翻译摘要", value=False)
     st.divider()
     st.caption(f"内置术语表 {Glossary.load().size} 条，保证专业名词译名一致。")
@@ -100,13 +104,18 @@ if search_clicked or (query and st.session_state.last_query == query and st.sess
                     progress.empty()
 
         translated = st.session_state.translated
-        # 导出按钮
+        # 导出按钮（云端部署时下载到本地，不写服务器文件系统）
         c1, c2 = st.columns([1, 1])
-        if c1.button("导出全部 Markdown", use_container_width=True):
+        if c1.button("生成 Markdown 下载", use_container_width=True):
             from papersearch.output import papers_to_markdown
             md = papers_to_markdown(papers, translated)
-            path = write_output(md, "output", name=query or "result", as_html=True)
-            st.success(f"已导出: {path}")
+            st.download_button(
+                "⬇️ 下载双语 Markdown",
+                data=md,
+                file_name=f"{query or 'result'}.md",
+                mime="text/markdown",
+                use_container_width=True,
+            )
 
         # 论文列表：可展开查看，可选中翻译详情
         for i, p in enumerate(papers, 1):

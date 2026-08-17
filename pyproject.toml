@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "papersearch-nwu"
+description = "学术论文检索 + 学术级翻译：输入关键词聚合检索国外论文，输出术语一致的中英双语对照"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Ub0702" }]
+keywords = [
+    "academic", "paper-search", "translation", "arxiv",
+    "semantic-scholar", "openalex", "llm", "ollama", "research",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Text Processing :: Linguistic",
+]
+dependencies = [
+    "requests>=2.31.0",
+]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+ui = ["streamlit>=1.32.0"]
+dev = ["pytest>=8.0.0"]
+
+[project.urls]
+Homepage = "https://github.com/Ub0702/papersearch-nwu"
+Repository = "https://github.com/Ub0702/papersearch-nwu"
+
+[project.scripts]
+papersearch = "papersearch.cli:main"
+
+[tool.setuptools]
+packages = ["papersearch"]
+
+[tool.setuptools.package-data]
+papersearch = ["data/*.json"]
+
+[tool.setuptools.dynamic]
+version = { attr = "papersearch.__version__" }

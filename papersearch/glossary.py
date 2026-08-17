@@ -10,8 +10,8 @@ import json
 import re
 from pathlib import Path
 
-#: 默认术语表路径（项目仓库内 data/glossary.json）
-DEFAULT_GLOSSARY_PATH = Path(__file__).resolve().parent.parent / "data" / "glossary.json"
+#: 默认术语表路径（随包分发：papersearch/data/glossary.json，pip 安装后同样生效）
+DEFAULT_GLOSSARY_PATH = Path(__file__).resolve().parent / "data" / "glossary.json"
 
 
 class Glossary:

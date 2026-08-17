@@ -15,6 +15,8 @@ PaperSearch 解决研究生/本科生的文献阅读痛点：查文献要跨多�
 - **可插拔翻译引擎**：默认本地 Ollama（免费离线），支持任意 OpenAI 兼容 API（DeepSeek/通义/vLLM）与 DeepL
 - **双语对照输出**：Markdown / HTML，逐段原文 + 译文对照，公式与引用原样保留
 - **两种入口**：命令行 CLI + Streamlit Web UI
+- **pip 一键安装**：`pip install papersearch-nwu`，30 秒上手
+- **可部署线上版**：Streamlit Cloud 免费托管，浏览器直接用
 
 ## 效果演示
 
@@ -40,15 +42,28 @@ $ python -m papersearch "graph neural network" -n 3 --translate
 
 ## 快速开始
 
+### 方式一：pip 安装（推荐）
+
 ```bash
-# 1. 安装依赖
+pip install papersearch-nwu                    # 核心（含 CLI）
+pip install "papersearch-nwu[ui]"              # 可选：附 Streamlit Web UI
+
+papersearch "graph neural network"             # 检索
+papersearch "medical image segmentation" -t 5  # 检索 + 翻译（需 Ollama 或 API Key）
+```
+
+### 方式二：源码运行（开发/自定义）
+
+```bash
+git clone https://github.com/Ub0702/papersearch-nwu.git
+cd papersearch-nwu
 pip install -r requirements.txt          # 仅 CLI
 pip install streamlit                    # 如需 Web UI
 
-# 2. 检索论文（不翻译）
+# 检索论文（不翻译）
 python -m papersearch "graph neural network"
 
-# 3. 检索 + 翻译摘要（默认 Ollama，需先启动本地服务）
+# 检索 + 翻译摘要（默认 Ollama，需先启动本地服务）
 ollama pull qwen2.5:7b                   # 一次性：下载模型
 ollama serve                             # 启动服务
 python -m papersearch "medical image segmentation" --translate
@@ -68,6 +83,24 @@ streamlit run app.py
 ```
 
 输出文件位于 `output/` 目录（Markdown + HTML 双语对照）。
+
+## 部署线上版（Streamlit Cloud）
+
+把 Web UI 部署到云端后，任何人无需安装、浏览器打开链接即可使用：
+
+1. 访问 [streamlit.io/cloud](https://streamlit.io/cloud)，用 GitHub 账号登录
+2. **Create app → Deploy a public app**，选择 `Ub0702/papersearch-nwu` 仓库
+3. Main file 填 `app.py`，点击 Deploy，等待 1-2 分钟
+4. （可选）**Settings → Secrets** 配置翻译后端，云端没有本地 Ollama：
+
+   ```toml
+   PAPERSEARCH_API_KEY = "sk-xxx"                        # OpenAI 兼容 Key（如 DeepSeek）
+   PAPERSEARCH_BASE_URL = "https://api.deepseek.com/v1"  # 对应服务地址
+   ```
+
+   配置后线上版翻译开箱即用；未配置时检索功能不受影响。
+
+> 线上 Demo 链接见仓库首页（README 顶部徽章下方），部署后即生效。
 
 ## CLI 参数
 
@@ -108,7 +141,7 @@ streamlit run app.py
 
 ## 术语表
 
-`data/glossary.json` 以 `{"英文术语": "中文译名"}` 格式维护。翻译时：
+`papersearch/data/glossary.json` 以 `{"英文术语": "中文译名"}` 格式维护（pip 安装时随包分发，位置可在 `--glossary` 指定自定义表）。翻译时：
 
 1. `protect()`：把正文中的术语替换为 `[[T0]]` 占位符（长术语优先匹配）
 2. 调用翻译引擎
