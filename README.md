@@ -18,6 +18,7 @@ PaperSearch 解决研究生/本科生的文献阅读痛点：查文献要跨多�
 - **术语表感知翻译**：内置 100+ 条计算机/AI 学术术语，翻译前保护、翻译后还原，专业名词译名统一
 - **可插拔翻译引擎**：默认本地 Ollama（免费离线），支持任意 OpenAI 兼容 API（DeepSeek/通义/vLLM）与 DeepL
 - **整篇 PDF 翻译**：上传/指定 PDF，保留排版与公式输出纯译文 + 双语对照（基于 PDFMathTranslate）
+- **本地文献库管理**：扫描文件夹导入 PDF（SQLite 存储），自动提取标题/作者/年份，库内全文搜索秒级定位
 - **双语对照输出**：Markdown / HTML，逐段原文 + 译文对照，公式与引用原样保留
 - **两种入口**：命令行 CLI + Streamlit Web UI
 - **pip 一键安装**：`pip install papersearch-nwu`，30 秒上手
@@ -62,6 +63,11 @@ papersearch "medical image segmentation" -t 5  # 检索 + 翻译（需 Ollama �
 papersearch pdf paper.pdf                      # 翻译全部页 -> paper-zh.pdf + paper-dual.pdf
 papersearch pdf paper.pdf --pages 1-3          # 只翻译前 3 页
 papersearch pdf paper.pdf --engine openai --model gpt-4o-mini  # 换在线引擎
+
+# 本地文献库管理（SQLite，数据存 ~/.papersearch/library.db）
+papersearch library scan ~/papers              # 扫描文件夹，导入 PDF 论文
+papersearch library search "graph neural"      # 库内全文搜索（标题/作者/摘要/全文）
+papersearch library list                       # 列出全部论文
 ```
 
 ### 方式二：源码运行（开发/自定义）
@@ -147,6 +153,19 @@ streamlit run app.py
 
 > PDF 翻译依赖 `pdf2zh`（PDFMathTranslate），首次运行会自动下载版面分析模型（约 100MB）。
 
+### `papersearch library`（本地文献库管理）
+
+| 子命令 | 说明 |
+|---|---|
+| `scan <dir>` | 扫描文件夹导入 PDF 论文（`--no-recursive` 只扫顶层；`--db` 指定数据库） |
+| `search <query>` | 库内全文搜索，匹配标题/作者/摘要/全文，按年份倒序 |
+| `list` | 列出全部论文（按入库时间倒序，`--limit` 控制条数） |
+| `info <id>` | 查看单篇论文详情（摘要、arXiv ID 等） |
+| `remove <id>` | 从文献库删除记录（不删除磁盘文件） |
+| `stats` | 文献库统计信息 |
+
+> 数据默认存 `~/.papersearch/library.db`。文献库依赖 PyMuPDF，随核心包一起安装，开箱即用。
+
 ## 架构
 
 ```
@@ -157,6 +176,7 @@ streamlit run app.py
    ↓   + Glossary 术语表：protect() -> translate -> restore()
 排版层  Markdown / HTML 双语对照                     （output.py）
    ↓   PDF 整篇翻译（pdf_translate.py，子进程调用 pdf2zh）
+文献库  本地 PDF 扫描 + SQLite 存储 + 元数据提取 + 全文搜索（library.py）
 入口    CLI (cli.py) / Streamlit UI (app.py)
 ```
 
@@ -191,7 +211,7 @@ python -m papersearch "your query" --translate --glossary my_glossary.json
 - [x] M1：可插拔翻译引擎 + 术语表机制
 - [x] M2：CLI + Web UI 双语对照
 - [x] M3：整篇 PDF 翻译（集成 PDFMathTranslate，保留公式排版）
-- [ ] M4：中文论文检索（百度学术）与本地文献库管理
+- [x] M4：本地文献库管理（扫描导入 + 元数据提取 + 库内全文搜索，SQLite 存储）
 - [ ] M5：语义检索（向量索引）与 RAG 问答
 
 ## 测试

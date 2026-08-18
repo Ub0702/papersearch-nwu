@@ -6,6 +6,7 @@
 功能：
 - 论文检索：输入关键词 -> 聚合检索 -> 逐篇查看中英双语摘要，可导出 Markdown。
 - PDF 翻译：上传 PDF -> 整篇翻译（保留排版与公式，需本地安装 pdf2zh）。
+- 本地文献库：扫描本地 PDF 建立 SQLite 文献库，元数据提取 + 全文搜索。
 """
 
 from __future__ import annotations
@@ -218,12 +219,118 @@ def _render_pdf_tab() -> None:
                     )
 
 # ----------------------------------------------------------------------
-# 主区域：Tab 切换（论文检索 / PDF 翻译）
+# 本地文献库 Tab
 # ----------------------------------------------------------------------
-tab_search, tab_pdf = st.tabs(["🔍 论文检索", "📄 PDF 整篇翻译"])
+def _render_library_tab() -> None:
+    from papersearch.library import (
+        LibraryError,
+        default_db_path,
+        list_papers,
+        remove_paper,
+        scan_directory,
+        search_library,
+    )
+
+    st.title("📚 本地文献库")
+    st.caption("扫描本地 PDF 论文建立文献库（SQLite），自动提取标题/作者/年份，支持库内全文搜索。")
+
+    db_path = st.text_input("数据库路径", value=str(default_db_path()), key="lib_db_path")
+
+    # --- 扫描导入 ---
+    with st.expander("📥 扫描导入 PDF", expanded=True):
+        col1, col2 = st.columns([3, 1])
+        folder = col1.text_input("要扫描的文件夹路径", placeholder="e.g. C:/Users/you/Downloads/papers")
+        recursive = col2.checkbox("递归子目录", value=True)
+        if st.button("开始扫描", type="primary"):
+            folder = folder.strip().strip('"')
+            if not folder:
+                st.error("请先填写文件夹路径")
+            elif not os.path.isdir(folder):
+                st.error(f"目录不存在: {folder}")
+            else:
+                progress_bar = st.progress(0.0, text="准备扫描...")
+
+                def _on_progress(done: int, total: int, cur: str) -> None:
+                    name = os.path.basename(cur)
+                    progress_bar.progress(done / total, text=f"扫描中 ({done}/{total}): {name}")
+
+                try:
+                    result = scan_directory(
+                        folder, db_path=db_path, recursive=recursive, progress=_on_progress
+                    )
+                except LibraryError as exc:
+                    st.error(str(exc))
+                else:
+                    progress_bar.empty()
+                    st.success(result.summary())
+                    for err in result.errors[:10]:
+                        st.caption(f"⚠️ {err}")
+
+    # --- 搜索 ---
+    query = st.text_input(
+        "🔎 库内全文搜索",
+        placeholder="输入关键词，匹配标题/作者/摘要/全文；留空列出全部",
+        key="lib_query",
+    )
+
+    # --- 列表 ---
+    try:
+        if query.strip():
+            papers = search_library(query.strip(), db_path=db_path, limit=100)
+            st.caption(f"搜索「{query.strip()}」命中 {len(papers)} 篇（按年份倒序）")
+        else:
+            papers = list_papers(db_path=db_path, limit=200)
+            st.caption(f"共 {len(papers)} 篇（按入库时间倒序，仅显示前 200 篇）")
+    except LibraryError as exc:
+        st.error(str(exc))
+        papers = []
+
+    if papers:
+        st.dataframe(
+            [
+                {
+                    "id": p.id,
+                    "标题": p.title,
+                    "作者": p.authors_text,
+                    "年份": p.year_text,
+                    "arXiv": p.arxiv_id or "",
+                    "大小": p.size_text,
+                    "路径": p.file_path,
+                }
+                for p in papers
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.caption("下方可展开查看单篇详情（摘要等）。")
+        for p in papers[:20]:
+            with st.expander(f"[{p.id}] {p.title}  ({p.year_text})"):
+                st.markdown(f"**作者**: {p.authors_text}")
+                st.markdown(f"**文件**: `{p.file_path}`")
+                st.markdown(f"**arXiv**: {p.arxiv_id or 'N/A'} | **入库时间**: {p.added_at}")
+                if p.abstract:
+                    st.markdown(f"**摘要**: {p.abstract[:400]}")
+                if st.button("🗑️ 从文献库删除记录（不删文件）", key=f"lib_del_{p.id}"):
+                    if remove_paper(p.id, db_path=db_path):
+                        st.success(f"已删除记录 [{p.id}]（磁盘文件未动）")
+                        try:
+                            st.rerun()
+                        except AttributeError:  # 旧版 Streamlit
+                            st.experimental_rerun()
+    elif not query.strip():
+        st.info("文献库还是空的。填写上方文件夹路径并点击「开始扫描」导入 PDF。")
+
+
+# ----------------------------------------------------------------------
+# 主区域：Tab 切换（论文检索 / PDF 翻译 / 本地文献库）
+# ----------------------------------------------------------------------
+tab_search, tab_pdf, tab_library = st.tabs(["🔍 论文检索", "📄 PDF 整篇翻译", "📚 本地文献库"])
 
 with tab_search:
     _render_search_tab()
 
 with tab_pdf:
     _render_pdf_tab()
+
+with tab_library:
+    _render_library_tab()

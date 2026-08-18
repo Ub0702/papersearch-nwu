@@ -7,6 +7,9 @@
     python -m papersearch "llm" --engine openai --api-key sk-xxx
     python -m papersearch pdf paper.pdf                     # 整篇 PDF 翻译（保留排版）
     python -m papersearch pdf paper.pdf -o out --pages 1-3  # 只翻译前 3 页
+    python -m papersearch library scan ~/papers             # 扫描文件夹，导入本地 PDF 文献库
+    python -m papersearch library search "graph neural"     # 库内全文搜索
+    python -m papersearch library list                      # 列出文献库全部论文
 
 环境变量：
     PAPERSEARCH_API_KEY    openai/deepl 引擎的 API Key（亦可 --api-key 传入）
@@ -122,10 +125,113 @@ def pdf_main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def build_library_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="papersearch library",
+        description="本地文献库管理（扫描导入 PDF + 元数据提取 + 全文搜索，SQLite 存储）",
+    )
+    sub = parser.add_subparsers(dest="command", required=True, metavar="命令")
+
+    scan = sub.add_parser("scan", help="扫描文件夹，导入其中的 PDF 论文")
+    scan.add_argument("directory", help="要扫描的文件夹路径")
+    scan.add_argument("--no-recursive", action="store_true", help="只扫描顶层目录（默认递归子目录）")
+    scan.add_argument("--db", default=None, help="数据库路径（默认 ~/.papersearch/library.db）")
+
+    lst = sub.add_parser("list", help="列出文献库全部论文（按入库时间倒序）")
+    lst.add_argument("--limit", type=int, default=100, help="最大条数（默认 100）")
+    lst.add_argument("--db", default=None, help="数据库路径（默认 ~/.papersearch/library.db）")
+
+    search = sub.add_parser("search", help="库内全文搜索（标题/作者/摘要/全文）")
+    search.add_argument("query", help="搜索关键词")
+    search.add_argument("--limit", type=int, default=50, help="最大条数（默认 50）")
+    search.add_argument("--db", default=None, help="数据库路径（默认 ~/.papersearch/library.db）")
+
+    info = sub.add_parser("info", help="查看单篇论文详情")
+    info.add_argument("id", type=int, help="论文 id（list 里第一列）")
+    info.add_argument("--db", default=None, help="数据库路径（默认 ~/.papersearch/library.db）")
+
+    remove = sub.add_parser("remove", help="从文献库删除记录（不删除磁盘文件）")
+    remove.add_argument("id", type=int, help="论文 id")
+    remove.add_argument("--db", default=None, help="数据库路径（默认 ~/.papersearch/library.db）")
+
+    stats = sub.add_parser("stats", help="文献库统计信息")
+    stats.add_argument("--db", default=None, help="数据库路径（默认 ~/.papersearch/library.db）")
+    return parser
+
+
+def _print_library_papers(papers) -> None:
+    if not papers:
+        print("（空）")
+        return
+    for p in papers:
+        print(f"[{p.id}] {p.title}")
+        print(f"    {p.authors_text} | {p.year_text} | {p.size_text}")
+        print(f"    {p.file_path}")
+
+
+def library_main(argv: list[str] | None = None) -> int:
+    from .library import (
+        LibraryError,
+        get_paper,
+        library_stats,
+        list_papers,
+        remove_paper,
+        scan_directory,
+        search_library,
+    )
+
+    args = build_library_parser().parse_args(argv)
+    try:
+        if args.command == "scan":
+            result = scan_directory(
+                args.directory, db_path=args.db, recursive=not args.no_recursive
+            )
+            print(f"[info] {result.summary()}")
+            for err in result.errors:
+                print(f"[warn] {err}")
+        elif args.command == "list":
+            papers = list_papers(db_path=args.db, limit=args.limit)
+            print(f"[info] 共 {len(papers)} 篇：")
+            _print_library_papers(papers)
+        elif args.command == "search":
+            papers = search_library(args.query, db_path=args.db, limit=args.limit)
+            print(f"[info] 搜索「{args.query}」命中 {len(papers)} 篇：")
+            _print_library_papers(papers)
+        elif args.command == "info":
+            paper = get_paper(args.id, db_path=args.db)
+            if not paper:
+                print(f"[error] 未找到 id={args.id} 的论文")
+                return 1
+            print(f"标题: {paper.title}")
+            print(f"作者: {paper.authors_text}")
+            print(f"年份: {paper.year_text}")
+            print(f"arXiv: {paper.arxiv_id or 'N/A'}")
+            print(f"文件: {paper.file_path} ({paper.size_text})")
+            print(f"入库: {paper.added_at}")
+            if paper.abstract:
+                print(f"摘要: {paper.abstract[:300]}")
+        elif args.command == "remove":
+            if remove_paper(args.id, db_path=args.db):
+                print(f"[info] 已从文献库删除 id={args.id}（磁盘文件未动）")
+            else:
+                print(f"[error] 未找到 id={args.id} 的论文")
+                return 1
+        elif args.command == "stats":
+            s = library_stats(db_path=args.db)
+            print(f"[info] 数据库: {s['db_path']}")
+            print(f"[info] 共 {s['total']} 篇 | 有年份 {s['with_year']} | 含 arXiv ID {s['with_arxiv']}")
+        return 0
+    except LibraryError as exc:
+        print(f"[error] {exc}")
+        return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "pdf":
         return pdf_main(argv[1:])
+    if argv and argv[0] == "library":
+        return library_main(argv[1:])
     args = build_parser().parse_args(argv)
     glossary = Glossary.load(args.glossary)
     print(f"[info] PaperSearch v{__version__} | 关键词: {args.query} | 术语表: {glossary.size} 条")

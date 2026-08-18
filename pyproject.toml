@@ -28,6 +28,7 @@ classifiers = [
 ]
 dependencies = [
     "requests>=2.31.0",
+    "pymupdf>=1.24",  # 本地文献库：PDF 元数据提取与全文解析
 ]
 dynamic = ["version"]
 
