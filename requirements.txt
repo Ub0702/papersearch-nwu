@@ -1,6 +1,7 @@
 # PaperSearch 依赖
 # 核心（必须）
 requests>=2.31.0
+pymupdf>=1.24    # 本地文献库：PDF 元数据提取与全文解析
 
 # Web UI（可选：pip install streamlit）
 streamlit>=1.32.0
