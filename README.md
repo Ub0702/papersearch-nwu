@@ -1,5 +1,6 @@
 # PaperSearch
 
+[![PyPI version](https://img.shields.io/pypi/v/papersearch-nwu.svg)](https://pypi.org/project/papersearch-nwu/)
 [![CI](https://github.com/Ub0702/papersearch-nwu/actions/workflows/ci.yml/badge.svg)](https://github.com/Ub0702/papersearch-nwu/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/Ub0702/papersearch-nwu/blob/main/LICENSE)
 [![Online Demo](https://img.shields.io/badge/%E5%9C%A8%E7%BA%BF%E4%BD%93%E9%AA%8C-Streamlit-FF4B4B.svg)](https://papersearch-nwu-nfruh355rcscgrsqboa3ms.streamlit.app/)
