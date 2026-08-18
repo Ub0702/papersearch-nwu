@@ -5,6 +5,8 @@
     python -m papersearch "medical image segmentation" -t 5 # 检索并翻译摘要
     python -m papersearch "diffusion model" --engine ollama --model qwen2.5:7b
     python -m papersearch "llm" --engine openai --api-key sk-xxx
+    python -m papersearch pdf paper.pdf                     # 整篇 PDF 翻译（保留排版）
+    python -m papersearch pdf paper.pdf -o out --pages 1-3  # 只翻译前 3 页
 
 环境变量：
     PAPERSEARCH_API_KEY    openai/deepl 引擎的 API Key（亦可 --api-key 传入）
@@ -67,7 +69,63 @@ def _print_paper(idx: int, paper: Paper) -> None:
     print(f"    Abstract: {abstract}")
 
 
+def build_pdf_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="papersearch pdf",
+        description="整篇 PDF 翻译（保留排版与公式，基于 pdf2zh/PDFMathTranslate）",
+    )
+    parser.add_argument("pdf", help="输入 PDF 文件路径")
+    parser.add_argument("-o", "--out-dir", default=None, help="输出目录（默认与输入 PDF 同目录）")
+    parser.add_argument(
+        "--engine", default="ollama",
+        help="翻译后端（默认 ollama，本地免费；也可 openai/deepl/google）",
+    )
+    parser.add_argument("--model", default="qwen2.5:7b", help="模型名（ollama: qwen2.5:7b；openai: gpt-4o-mini）")
+    parser.add_argument("--lang-in", default="en", help="源语言代码（默认 en）")
+    parser.add_argument("--lang-out", default="zh", help="目标语言代码（默认 zh）")
+    parser.add_argument("--pages", default=None, help="只翻译指定页，如 1、1-3、1,3（默认全部）")
+    parser.add_argument("--thread", type=int, default=4, help="并行翻译线程数（默认 4）")
+    parser.add_argument("--timeout", type=int, default=3600, help="超时秒数（默认 3600，整篇 PDF 较慢）")
+    return parser
+
+
+def pdf_main(argv: list[str] | None = None) -> int:
+    from .pdf_translate import PdfTranslateError, translate_pdf
+
+    args = build_pdf_parser().parse_args(argv)
+    if not os.path.exists(args.pdf):
+        print(f"[error] 输入文件不存在: {args.pdf}")
+        return 1
+    print(
+        f"[info] 翻译 PDF: {args.pdf}\n"
+        f"[info] 引擎: {args.engine}:{args.model} | {args.lang_in} -> {args.lang_out}"
+        + (f" | 页: {args.pages}" if args.pages else "")
+    )
+    print("[info] 首次运行会下载版面分析模型，之后将缓存（国内网络建议开启代理）...")
+    try:
+        result = translate_pdf(
+            args.pdf,
+            args.out_dir,
+            engine=args.engine,
+            model=args.model,
+            lang_in=args.lang_in,
+            lang_out=args.lang_out,
+            pages=args.pages,
+            thread=args.thread,
+            timeout=args.timeout,
+        )
+    except PdfTranslateError as exc:
+        print(f"[error] {exc}")
+        return 1
+    print(f"[info] 翻译完成 ✅")
+    print(result.summary())
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "pdf":
+        return pdf_main(argv[1:])
     args = build_parser().parse_args(argv)
     glossary = Glossary.load(args.glossary)
     print(f"[info] PaperSearch v{__version__} | 关键词: {args.query} | 术语表: {glossary.size} 条")

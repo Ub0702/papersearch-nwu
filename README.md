@@ -17,6 +17,7 @@ PaperSearch 解决研究生/本科生的文献阅读痛点：查文献要跨多�
 - **双排序模式**：默认按相关度，一键切换「最新优先」（按出版年份降序），追前沿进展不用手动筛
 - **术语表感知翻译**：内置 100+ 条计算机/AI 学术术语，翻译前保护、翻译后还原，专业名词译名统一
 - **可插拔翻译引擎**：默认本地 Ollama（免费离线），支持任意 OpenAI 兼容 API（DeepSeek/通义/vLLM）与 DeepL
+- **整篇 PDF 翻译**：上传/指定 PDF，保留排版与公式输出纯译文 + 双语对照（基于 PDFMathTranslate）
 - **双语对照输出**：Markdown / HTML，逐段原文 + 译文对照，公式与引用原样保留
 - **两种入口**：命令行 CLI + Streamlit Web UI
 - **pip 一键安装**：`pip install papersearch-nwu`，30 秒上手
@@ -51,10 +52,16 @@ $ python -m papersearch "graph neural network" -n 3 --translate
 ```bash
 pip install papersearch-nwu                    # 核心（含 CLI）
 pip install "papersearch-nwu[ui]"              # 可选：附 Streamlit Web UI
+pip install "papersearch-nwu[pdf]"             # 可选：附整篇 PDF 翻译（较大）
 
 papersearch "graph neural network"             # 检索
 papersearch "graph neural network" --sort date # 按出版年份最新在前
 papersearch "medical image segmentation" -t 5  # 检索 + 翻译（需 Ollama 或 API Key）
+
+# 整篇 PDF 翻译（保留排版与公式）
+papersearch pdf paper.pdf                      # 翻译全部页 -> paper-zh.pdf + paper-dual.pdf
+papersearch pdf paper.pdf --pages 1-3          # 只翻译前 3 页
+papersearch pdf paper.pdf --engine openai --model gpt-4o-mini  # 换在线引擎
 ```
 
 ### 方式二：源码运行（开发/自定义）
@@ -82,6 +89,10 @@ setx HTTP_PROXY  http://127.0.0.1:7897
 # 4. 使用 OpenAI 兼容 API
 export PAPERSEARCH_API_KEY=sk-xxx        # Windows: set PAPERSEARCH_API_KEY=sk-xxx
 python -m papersearch "diffusion model" --engine openai --model gpt-4o-mini
+
+# 4.1 整篇 PDF 翻译（可选依赖，体积较大）
+pip install pdf2zh
+python -m papersearch pdf paper.pdf --pages 1-3
 
 # 5. Web UI
 streamlit run app.py
@@ -121,6 +132,21 @@ streamlit run app.py
 | `--glossary` | 自定义术语表 JSON 路径 | 内置表 |
 | `--out-dir` | 输出目录 | `output/` |
 
+### `papersearch pdf`（整篇 PDF 翻译）
+
+| 参数 | 说明 | 默认 |
+|---|---|---|
+| `pdf` | 输入 PDF 文件路径 | 必填 |
+| `-o / --out-dir` | 输出目录 | 与输入 PDF 同目录 |
+| `--engine` | 翻译后端：`ollama` / `openai` / `deepl` / `google` | `ollama` |
+| `--model` | 模型名 | `qwen2.5:7b` |
+| `--lang-in` / `--lang-out` | 源/目标语言代码 | `en` / `zh` |
+| `--pages` | 只翻译指定页（如 `1-3`） | 全部 |
+| `--thread` | 并行翻译线程数 | 4 |
+| `--timeout` | 超时秒数 | 3600 |
+
+> PDF 翻译依赖 `pdf2zh`（PDFMathTranslate），首次运行会自动下载版面分析模型（约 100MB）。
+
 ## 架构
 
 ```
@@ -130,7 +156,7 @@ streamlit run app.py
 翻译层  OllamaTranslator / OpenAITranslator / DeepLTranslator
    ↓   + Glossary 术语表：protect() -> translate -> restore()
 排版层  Markdown / HTML 双语对照                     （output.py）
-   ↓
+   ↓   PDF 整篇翻译（pdf_translate.py，子进程调用 pdf2zh）
 入口    CLI (cli.py) / Streamlit UI (app.py)
 ```
 
@@ -164,7 +190,7 @@ python -m papersearch "your query" --translate --glossary my_glossary.json
 - [x] M0：项目骨架 + 多源检索（Semantic Scholar + arXiv）
 - [x] M1：可插拔翻译引擎 + 术语表机制
 - [x] M2：CLI + Web UI 双语对照
-- [ ] M3：整篇 PDF 翻译（集成 PDFMathTranslate，保留公式排版）
+- [x] M3：整篇 PDF 翻译（集成 PDFMathTranslate，保留公式排版）
 - [ ] M4：中文论文检索（百度学术）与本地文献库管理
 - [ ] M5：语义检索（向量索引）与 RAG 问答
 

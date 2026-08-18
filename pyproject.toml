@@ -33,6 +33,7 @@ dynamic = ["version"]
 
 [project.optional-dependencies]
 ui = ["streamlit>=1.32.0"]
+pdf = ["pdf2zh>=1.7.9"]
 dev = ["pytest>=8.0.0"]
 
 [project.urls]
