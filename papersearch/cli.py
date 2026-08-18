@@ -33,6 +33,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("query", help="检索关键词，例如 'graph neural network'")
     parser.add_argument("-n", "--top", type=int, default=5, help="返回论文数量（默认 5）")
     parser.add_argument(
+        "--sort", default="relevance", choices=["relevance", "date"],
+        help="结果排序：relevance 按相关度（默认），date 按出版年份最新在前",
+    )
+    parser.add_argument(
         "-t", "--translate", action="store_true",
         help="翻译论文摘要并输出双语对照",
     )
@@ -67,8 +71,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     glossary = Glossary.load(args.glossary)
     print(f"[info] PaperSearch v{__version__} | 关键词: {args.query} | 术语表: {glossary.size} 条")
-    print(f"[info] 检索中（OpenAlex + Semantic Scholar + arXiv）...")
-    papers = search_all(args.query, limit_per_source=max(args.top * 2, 10))
+    sort_desc = "按年份最新在前" if args.sort == "date" else "按相关度"
+    print(f"[info] 检索中（OpenAlex + Semantic Scholar + arXiv），排序: {sort_desc}...")
+    papers = search_all(args.query, limit_per_source=max(args.top * 2, 10), sort=args.sort)
     papers = papers[: args.top]
     if not papers:
         print("[error] 未检索到任何论文，请更换关键词或稍后重试")

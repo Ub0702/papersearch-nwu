@@ -232,8 +232,23 @@ def search_all(
     query: str,
     limit_per_source: int = 10,
     sources: Iterable[Source] | None = None,
+    sort: str = "relevance",
 ) -> list[Paper]:
-    """聚合多个数据源的检索结果，按相关度降序、去重后返回。"""
+    """聚合多个数据源的检索结果，去重后返回。
+
+    Args:
+        query: 检索关键词
+        limit_per_source: 每个数据源最多取回的数量
+        sources: 自定义数据源列表（默认 OpenAlex + Semantic Scholar + arXiv）
+        sort: 排序方式
+            - "relevance"（默认）：按相关度降序
+            - "date"：按出版年份降序（最新在前），年份缺失的论文排在最后
+
+    Raises:
+        ValueError: sort 取值非法时
+    """
+    if sort not in ("relevance", "date"):
+        raise ValueError(f"不支持的排序方式: {sort}（可选 relevance / date）")
     if sources is None:
         sources = [
             SemanticScholarSource(api_key=_s2_key()),
@@ -251,4 +266,10 @@ def search_all(
             key = paper.title.lower().strip()
             if key and key not in merged:
                 merged[key] = paper
+    if sort == "date":
+        # 有年份的在前按新->旧排，无年份的（year is None = True）统一排最后
+        return sorted(
+            merged.values(),
+            key=lambda p: (p.year is None, -(p.year or 0)),
+        )
     return sorted(merged.values(), key=lambda p: p.relevance, reverse=True)

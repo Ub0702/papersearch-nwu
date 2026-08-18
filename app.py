@@ -62,14 +62,18 @@ with st.sidebar:
 # ----------------------------------------------------------------------
 st.title("学术论文检索与翻译")
 query = st.text_input("输入研究关键词（英文效果最佳）", placeholder="e.g. graph neural network")
-col1, col2, _ = st.columns([1, 1, 4])
-top_n = col1.number_input("Top N", min_value=1, max_value=20, value=5, step=1)
-search_clicked = col2.button("搜索", type="primary", use_container_width=True)
+col1, col2, col3, _ = st.columns([1, 1, 1, 3])
+sort_choice = col1.radio("排序", ["相关度", "最新"], horizontal=True, index=0)
+top_n = col2.number_input("Top N", min_value=1, max_value=20, value=5, step=1)
+search_clicked = col3.button("搜索", type="primary", use_container_width=True)
 
 if search_clicked or (query and st.session_state.last_query == query and st.session_state.papers):
     if search_clicked:
         with st.spinner("检索中（OpenAlex + Semantic Scholar + arXiv）..."):
-            st.session_state.papers = search_all(query, limit_per_source=max(top_n * 2, 10))[:top_n]
+            sort = "date" if sort_choice == "最新" else "relevance"
+            st.session_state.papers = search_all(
+                query, limit_per_source=max(top_n * 2, 10), sort=sort
+            )[:top_n]
             st.session_state.translated = {}
             st.session_state.last_query = query
     papers: list[Paper] = st.session_state.papers

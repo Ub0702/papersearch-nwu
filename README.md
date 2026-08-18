@@ -14,6 +14,7 @@ PaperSearch 解决研究生/本科生的文献阅读痛点：查文献要跨多�
 ## 特性
 
 - **多源聚合检索**：OpenAlex（2.5亿+ 论文）+ Semantic Scholar（2亿+）+ arXiv（预印本），免费 API、无需 Key；单源失败自动兜底
+- **双排序模式**：默认按相关度，一键切换「最新优先」（按出版年份降序），追前沿进展不用手动筛
 - **术语表感知翻译**：内置 100+ 条计算机/AI 学术术语，翻译前保护、翻译后还原，专业名词译名统一
 - **可插拔翻译引擎**：默认本地 Ollama（免费离线），支持任意 OpenAI 兼容 API（DeepSeek/通义/vLLM）与 DeepL
 - **双语对照输出**：Markdown / HTML，逐段原文 + 译文对照，公式与引用原样保留
@@ -52,6 +53,7 @@ pip install papersearch-nwu                    # 核心（含 CLI）
 pip install "papersearch-nwu[ui]"              # 可选：附 Streamlit Web UI
 
 papersearch "graph neural network"             # 检索
+papersearch "graph neural network" --sort date # 按出版年份最新在前
 papersearch "medical image segmentation" -t 5  # 检索 + 翻译（需 Ollama 或 API Key）
 ```
 
@@ -111,6 +113,7 @@ streamlit run app.py
 |---|---|---|
 | `query` | 检索关键词（英文效果最佳） | 必填 |
 | `-n / --top` | 返回论文数量 | 5 |
+| `--sort` | `relevance` 相关度 / `date` 按年份最新在前 | `relevance` |
 | `-t / --translate` | 翻译摘要并输出双语对照 | 关 |
 | `--engine` | `ollama` / `openai` / `deepl` | `ollama` |
 | `--model` | 引擎模型名 | `qwen2.5:7b` |
