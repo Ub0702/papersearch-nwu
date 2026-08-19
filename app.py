@@ -220,7 +220,9 @@ def _render_search_tab() -> None:
                 )[:top_n]
                 st.session_state.translated = {}
                 st.session_state.last_query = query
-    elif query and st.session_state.last_query == query and st.session_state.papers:
+
+    # 渲染：搜索完成后立即展示；后续 rerun（改排序/数量等）也复用已有结果
+    if st.session_state.papers and st.session_state.last_query == query and query:
         papers: list[Paper] = st.session_state.papers
 
         if not papers:
