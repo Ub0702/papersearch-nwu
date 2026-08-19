@@ -127,6 +127,15 @@ if "last_query" not in st.session_state:
     st.session_state.last_query = ""
 if "rag_messages" not in st.session_state:
     st.session_state.rag_messages = []
+if "search_triggered" not in st.session_state:
+    st.session_state.search_triggered = False
+
+
+# ----------------------------------------------------------------------
+# 检索 Tab 回调
+# ----------------------------------------------------------------------
+def _trigger_search() -> None:
+    st.session_state.search_triggered = True
 
 
 # ----------------------------------------------------------------------
@@ -182,14 +191,28 @@ with st.sidebar:
 # 检索 Tab
 # ----------------------------------------------------------------------
 def _render_search_tab() -> None:
-    query = st.text_input("输入研究关键词（英文效果最佳）", placeholder="e.g. graph neural network")
-    col1, col2, col3, _ = st.columns([1.2, 1, 1, 2.8])
-    sort_choice = col1.radio("排序", ["相关度", "最新"], horizontal=True, index=0)
-    top_n = col2.number_input("Top N", min_value=1, max_value=20, value=5, step=1)
-    search_clicked = col3.button("🔍 搜索", type="primary", use_container_width=True)
+    # 搜索行：输入框 + 搜索按钮（紧凑布局，回车亦可触发）
+    c_input, c_btn = st.columns([4, 1])
+    with c_input:
+        query = st.text_input(
+            "搜索关键词（覆盖 OpenAlex / Semantic Scholar / arXiv，英文效果最佳）",
+            placeholder="e.g. graph neural network",
+            on_change=_trigger_search,
+            key="search_query",
+        )
+    with c_btn:
+        st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
+        search_clicked = st.button("🔍", type="primary", use_container_width=True)
 
-    if search_clicked or (query and st.session_state.last_query == query and st.session_state.papers):
-        if search_clicked:
+    # 控制行：排序 + 返回数量
+    col_sort, col_top = st.columns([2, 1])
+    sort_choice = col_sort.radio("排序", ["相关度", "最新"], horizontal=True, index=0)
+    top_n = col_top.number_input("返回数量", min_value=1, max_value=20, value=5, step=1)
+
+    triggered = search_clicked or st.session_state.get("search_triggered", False)
+    if triggered:
+        st.session_state.search_triggered = False
+        if query:
             with st.spinner("检索中（OpenAlex + Semantic Scholar + arXiv）..."):
                 sort = "date" if sort_choice == "最新" else "relevance"
                 st.session_state.papers = search_all(
@@ -197,6 +220,7 @@ def _render_search_tab() -> None:
                 )[:top_n]
                 st.session_state.translated = {}
                 st.session_state.last_query = query
+    elif query and st.session_state.last_query == query and st.session_state.papers:
         papers: list[Paper] = st.session_state.papers
 
         if not papers:
