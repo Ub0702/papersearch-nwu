@@ -13,15 +13,108 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 
 import streamlit as st
 
+from papersearch import __version__
 from papersearch.glossary import Glossary
 from papersearch.models import Paper
 from papersearch.search import search_all
 from papersearch.translate import get_translator, translate_with_glossary
 
-st.set_page_config(page_title="PaperSearch", page_icon="📄", layout="wide")
+st.set_page_config(
+    page_title="PaperSearch",
+    page_icon="📄",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# ----------------------------------------------------------------------
+# 全局样式（用 Streamlit 主题变量，自动适配明暗主题）
+# ----------------------------------------------------------------------
+_CSS = """
+<style>
+/* ---- 品牌主色 ---- */
+:root { --ps-primary: #6366F1; --ps-primary-soft: rgba(99, 102, 241, 0.12); }
+
+/* ---- Hero 头部 ---- */
+.ps-hero { padding: 0.6rem 0 0.2rem; }
+.ps-hero-title {
+    font-size: 2.1rem; font-weight: 800; letter-spacing: -0.5px;
+    background: linear-gradient(90deg, #6366F1, #A855F7);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    display: inline-block; margin-bottom: 0.1rem;
+}
+.ps-hero-sub { font-size: 1.0rem; opacity: 0.75; margin-bottom: 0.55rem; }
+.ps-badge {
+    display: inline-block; padding: 3px 12px; border-radius: 999px;
+    font-size: 0.75rem; font-weight: 600; margin-right: 6px;
+    background: var(--ps-primary-soft); color: var(--ps-primary);
+    border: 1px solid rgba(99, 102, 241, 0.35); text-decoration: none;
+}
+a.ps-badge:hover { background: var(--ps-primary); color: #fff; }
+
+/* ---- Tab 样式 ---- */
+.stTabs [data-baseweb="tab-list"] { gap: 6px; }
+.stTabs [data-baseweb="tab"] {
+    border-radius: 10px 10px 0 0; padding: 8px 18px; font-weight: 600;
+}
+
+/* ---- 按钮 ---- */
+.stButton > button, .stDownloadButton > button { border-radius: 10px; font-weight: 600; }
+
+/* ---- 卡片容器（st.container(border=True) 的外壳）---- */
+[data-testid="stVerticalBlockBorderWrapper"] {
+    border-radius: 14px !important;
+}
+
+/* ---- 来源徽章 ---- */
+.ps-src {
+    display: inline-block; padding: 2px 10px; border-radius: 999px;
+    font-size: 0.72rem; font-weight: 700; white-space: nowrap;
+}
+
+/* ---- 页脚 ---- */
+.ps-footer {
+    margin-top: 2.5rem; padding-top: 1rem; text-align: center;
+    font-size: 0.8rem; opacity: 0.55;
+    border-top: 1px solid rgba(128, 128, 128, 0.25);
+}
+.ps-footer a { color: inherit; text-decoration: none; }
+.ps-footer a:hover { color: var(--ps-primary); }
+</style>
+"""
+st.markdown(_CSS, unsafe_allow_html=True)
+
+# 来源徽章配色（半透明背景 + 同色系边框，明暗主题都清晰）
+_SOURCE_BADGES = {
+    "openalex": ("OpenAlex", "#F97316"),
+    "semantic_scholar": ("Semantic Scholar", "#8B5CF6"),
+    "arxiv": ("arXiv", "#B31B1B"),
+}
+
+
+def _src_badge(source: str) -> str:
+    label, color = _SOURCE_BADGES.get(source, (source or "unknown", "#6B7280"))
+    return (
+        f'<span class="ps-src" style="background:{color}1A;'
+        f'color:{color};border:1px solid {color}55">{label}</span>'
+    )
+
+
+def _count_chunks(db_path: str) -> int:
+    """已向量化的分块数（语义检索/RAG 的索引规模）。容错：无表或异常返回 0。"""
+    try:
+        conn = sqlite3.connect(db_path)
+        try:
+            n = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+        finally:
+            conn.close()
+        return n
+    except Exception:
+        return 0
+
 
 # ----------------------------------------------------------------------
 # 状态
@@ -32,16 +125,34 @@ if "translated" not in st.session_state:
     st.session_state.translated = {}
 if "last_query" not in st.session_state:
     st.session_state.last_query = ""
+if "rag_messages" not in st.session_state:
+    st.session_state.rag_messages = []
+
+
+# ----------------------------------------------------------------------
+# Hero 头部
+# ----------------------------------------------------------------------
+st.markdown(
+    f"""
+    <div class="ps-hero">
+      <span class="ps-hero-title">📄 PaperSearch</span>
+      <div class="ps-hero-sub">学术论文检索 · 学术级翻译 · 本地文献库 · RAG 论文问答</div>
+      <div>
+        <span class="ps-badge">v{__version__}</span>
+        <span class="ps-badge">OpenAlex · Semantic Scholar · arXiv</span>
+        <a class="ps-badge" href="https://github.com/Ub0702/papersearch-nwu" target="_blank">⭐ GitHub</a>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 
 # ----------------------------------------------------------------------
 # 侧边栏：翻译引擎设置
 # ----------------------------------------------------------------------
 with st.sidebar:
-    st.markdown("## PaperSearch")
-    st.caption("学术论文检索 + 学术级翻译")
-    st.divider()
-    st.markdown("### 翻译引擎")
+    st.markdown("### ⚙️ 翻译引擎")
     # 云端部署支持：Streamlit Secrets 注入的 PAPERSEARCH_API_KEY / BASE_URL 会自动生效
     default_api_key = os.environ.get("PAPERSEARCH_API_KEY", "")
     default_base_url = os.environ.get("PAPERSEARCH_BASE_URL", "https://api.openai.com/v1")
@@ -59,19 +170,23 @@ with st.sidebar:
         api_key = st.text_input("DeepL Auth Key", type="password", value=default_api_key)
     translate_on = st.toggle("翻译摘要", value=False)
     st.divider()
-    st.caption(f"内置术语表 {Glossary.load().size} 条，保证专业名词译名一致。")
+    st.caption(f"📖 内置术语表 {Glossary.load().size} 条，保证专业名词译名一致。")
+    st.divider()
+    st.caption(
+        f"PaperSearch v{__version__} · "
+        "[GitHub](https://github.com/Ub0702/papersearch-nwu) · MIT License"
+    )
 
 
 # ----------------------------------------------------------------------
 # 检索 Tab
 # ----------------------------------------------------------------------
 def _render_search_tab() -> None:
-    st.title("学术论文检索与翻译")
     query = st.text_input("输入研究关键词（英文效果最佳）", placeholder="e.g. graph neural network")
-    col1, col2, col3, _ = st.columns([1, 1, 1, 3])
+    col1, col2, col3, _ = st.columns([1.2, 1, 1, 2.8])
     sort_choice = col1.radio("排序", ["相关度", "最新"], horizontal=True, index=0)
     top_n = col2.number_input("Top N", min_value=1, max_value=20, value=5, step=1)
-    search_clicked = col3.button("搜索", type="primary", use_container_width=True)
+    search_clicked = col3.button("🔍 搜索", type="primary", use_container_width=True)
 
     if search_clicked or (query and st.session_state.last_query == query and st.session_state.papers):
         if search_clicked:
@@ -87,7 +202,13 @@ def _render_search_tab() -> None:
         if not papers:
             st.warning("未检索到论文，换个关键词试试。")
         else:
-            st.success(f"找到 {len(papers)} 篇相关论文")
+            # --- 统计概览 ---
+            sources = sorted({p.source for p in papers})
+            avg_rel = sum(p.relevance for p in papers) / len(papers)
+            m1, m2, m3, _ = st.columns([1, 1, 1, 3])
+            m1.metric("📄 找到论文", f"{len(papers)} 篇")
+            m2.metric("🌐 覆盖来源", len(sources))
+            m3.metric("🎯 平均相关度", f"{avg_rel:.2f}")
             st.divider()
 
             # 翻译开关在检索后仍可触发
@@ -115,7 +236,7 @@ def _render_search_tab() -> None:
 
             translated = st.session_state.translated
             # 导出按钮（云端部署时下载到本地，不写服务器文件系统）
-            if st.button("生成 Markdown 下载", use_container_width=True):
+            if st.button("📄 生成 Markdown 下载", use_container_width=True):
                 from papersearch.output import papers_to_markdown
                 md = papers_to_markdown(papers, translated)
                 st.download_button(
@@ -126,20 +247,30 @@ def _render_search_tab() -> None:
                     use_container_width=True,
                 )
 
-            # 论文列表：可展开查看，可选中翻译详情
+            # 论文卡片列表
             for i, p in enumerate(papers, 1):
-                with st.expander(
-                    f"{i}. {p.title}  ({p.year_text} · {p.source} · 相关度 {p.relevance:.2f})",
-                    expanded=(i == 1),
-                ):
-                    st.markdown(f"**作者**: {p.authors_text}")
-                    st.markdown(f"**链接**: [{p.url}]({p.url})" + (f" · [PDF]({p.pdf_url})" if p.pdf_url else ""))
+                with st.container(border=True):
+                    head = st.columns([5.2, 1.3])
+                    head[0].markdown(f"**{i}. {p.title}**")
+                    head[1].markdown(
+                        f'<div style="text-align:right">{_src_badge(p.source)}</div>',
+                        unsafe_allow_html=True,
+                    )
+                    st.caption(
+                        f"👤 {p.authors_text}  ·  📅 {p.year_text}  ·  🎯 相关度 {p.relevance:.2f}"
+                    )
+                    link_line = f"[原文链接]({p.url})" + (f" · [PDF]({p.pdf_url})" if p.pdf_url else "")
                     zh = translated.get(p.title)
                     if zh:
-                        st.markdown("#### 中文摘要")
                         st.markdown(zh)
-                        st.markdown("#### English Abstract")
-                    st.markdown(p.abstract if not zh else f"<details><summary>原文</summary>{p.abstract}</details>", unsafe_allow_html=True)
+                        with st.expander("English Abstract 与链接"):
+                            st.markdown(p.abstract)
+                            st.markdown(link_line)
+                    else:
+                        st.markdown(p.abstract[:350] + ("…" if len(p.abstract) > 350 else ""))
+                        with st.expander("完整摘要与链接"):
+                            st.markdown(p.abstract)
+                            st.markdown(link_line)
     else:
         st.caption("输入关键词开始检索。覆盖 OpenAlex（2.5亿+ 论文）、Semantic Scholar 与 arXiv 预印本。")
         st.markdown(
@@ -158,7 +289,7 @@ def _render_search_tab() -> None:
 def _render_pdf_tab() -> None:
     from papersearch.pdf_translate import PdfTranslateError, pdf2zh_available, translate_pdf
 
-    st.title("📄 PDF 整篇翻译")
+    st.markdown("### 📄 PDF 整篇翻译")
     st.caption("上传外文论文 PDF，保留排版与公式输出中文版（基于 PDFMathTranslate）。")
 
     if not pdf2zh_available():
@@ -219,6 +350,7 @@ def _render_pdf_tab() -> None:
                         use_container_width=True,
                     )
 
+
 # ----------------------------------------------------------------------
 # 本地文献库 Tab
 # ----------------------------------------------------------------------
@@ -226,16 +358,31 @@ def _render_library_tab() -> None:
     from papersearch.library import (
         LibraryError,
         default_db_path,
+        library_stats,
         list_papers,
         remove_paper,
         scan_directory,
         search_library,
     )
 
-    st.title("📚 本地文献库")
+    st.markdown("### 📚 本地文献库")
     st.caption("扫描本地 PDF 论文建立文献库（SQLite），自动提取标题/作者/年份，支持全文搜索与语义搜索。")
 
     db_path = st.text_input("数据库路径", value=str(default_db_path()), key="lib_db_path")
+
+    # --- 统计概览 ---
+    try:
+        stats = library_stats(db_path)
+        n_chunks = _count_chunks(db_path)
+    except Exception:
+        stats = {"total": 0, "with_year": 0, "with_arxiv": 0}
+        n_chunks = 0
+    s1, s2, s3, s4 = st.columns(4)
+    s1.metric("📄 文献总数", stats["total"])
+    s2.metric("📅 含年份", stats["with_year"])
+    s3.metric("🏷️ 含 arXiv", stats["with_arxiv"])
+    s4.metric("🧠 已索引分块", n_chunks)
+    st.divider()
 
     # --- 扫描导入 ---
     with st.expander("📥 扫描导入 PDF", expanded=True):
@@ -323,13 +470,19 @@ def _render_library_tab() -> None:
                 hits = semantic_search(query.strip(), db_path=db_path, embedder=embedder, top_k=5)
                 st.caption(f"语义搜索「{query.strip()}」Top {len(hits)} 命中（相似度从高到低）")
                 for i, hit in enumerate(hits, 1):
-                    with st.expander(
-                        f"[{i}] {hit.paper.title}  ({hit.paper.year_text} · 相似度 {hit.score:.3f})",
-                        expanded=(i == 1),
-                    ):
-                        st.markdown(f"**作者**: {hit.paper.authors_text}")
-                        st.markdown(f"**文件**: `{hit.paper.file_path}`")
+                    with st.container(border=True):
+                        head = st.columns([5, 1])
+                        head[0].markdown(f"**[{i}] {hit.paper.title}**")
+                        head[1].markdown(
+                            f'<div style="text-align:right">'
+                            f'<span class="ps-src" style="background:rgba(99,102,241,0.12);'
+                            f'color:#6366F1;border:1px solid rgba(99,102,241,0.4)">'
+                            f'{hit.score:.3f}</span></div>',
+                            unsafe_allow_html=True,
+                        )
+                        st.caption(f"👤 {hit.paper.authors_text}  ·  📅 {hit.paper.year_text}")
                         st.markdown(f"**命中片段**: {hit.snippet}")
+                        st.caption(f"📁 `{hit.paper.file_path}`")
                 papers = []
             else:
                 papers = search_library(query.strip(), db_path=db_path, limit=100)
@@ -381,46 +534,87 @@ def _render_library_tab() -> None:
 
 
 # ----------------------------------------------------------------------
-# 论文问答 Tab（RAG）
+# 论文问答 Tab（RAG，聊天式交互）
 # ----------------------------------------------------------------------
 def _render_rag_tab() -> None:
-    from papersearch.library import LibraryError, default_db_path
+    from papersearch.library import default_db_path
     from papersearch.rag import RagError, ask
 
-    st.title("💬 论文问答（RAG）")
+    st.markdown("### 💬 论文问答（RAG）")
     st.caption("基于本地文献库的内容回答你的问题，并附引用来源（需要先建立向量索引）。")
 
     db_path = st.text_input("数据库路径", value=str(default_db_path()), key="rag_db_path")
 
-    # 问答引擎配置（默认复用侧边栏翻译引擎；DeepL 不支持对话）
-    with st.expander("⚙️ 问答引擎设置", expanded=False):
+    # 问答引擎配置
+    with st.expander("⚙️ 问答引擎与检索设置", expanded=False):
         c1, c2, c3 = st.columns([1, 1, 2])
         rag_engine = c1.selectbox("引擎", ["ollama", "openai"], index=0)
         rag_model = c2.text_input("模型", value="qwen2.5:7b" if rag_engine == "ollama" else "gpt-4o-mini")
         rag_api_key = c3.text_input("API Key（openai）", type="password",
                                     value=os.environ.get("PAPERSEARCH_API_KEY", "")) if rag_engine == "openai" else None
-    rag_embed_model = st.text_input("embedding 模型", value="bge-m3", key="rag_embed_model")
+        c4, c5 = st.columns([1, 3])
+        rag_embed_model = c4.text_input("embedding 模型", value="bge-m3", key="rag_embed_model")
+        top_k = c5.slider("参考片段数", min_value=1, max_value=10, value=5)
+        if st.button("🗑️ 清空对话历史"):
+            st.session_state.rag_messages = []
+            st.rerun()
 
-    question = st.text_input("你的问题", placeholder="e.g. 这些论文里关于图神经网络的核心方法是什么？")
-    top_k = st.slider("参考片段数", min_value=1, max_value=10, value=5)
+    # --- 对话历史 ---
+    for msg in st.session_state.rag_messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            if msg.get("sources"):
+                with st.expander(f"📎 引用来源（{len(msg['sources'])} 个片段）", expanded=False):
+                    for i, src in enumerate(msg["sources"], 1):
+                        st.markdown(
+                            f"**[{i}] {src['title']}**  "
+                            f"({src['authors']} · {src['year']} · 相似度 {src['score']:.3f})"
+                        )
+                        st.markdown(f"`{src['file_path']}`")
+                        st.markdown(f"> {src['text'][:400]}")
+                        if i < len(msg["sources"]):
+                            st.markdown("---")
 
-    if st.button("💡 提问", type="primary") and question.strip():
+    # --- 输入 ---
+    question = st.chat_input("向你的文献库提问…")
+    if not question:
+        if not st.session_state.rag_messages:
+            st.info("💡 示例问题：「综述里提到的图神经网络有哪些应用？」「这些论文用了哪些数据集？」")
+        return
+
+    # 用户消息上屏
+    st.session_state.rag_messages.append({"role": "user", "content": question})
+    with st.chat_message("user"):
+        st.markdown(question)
+
+    # 助手回答
+    with st.chat_message("assistant"):
         from papersearch.embeddings import OllamaEmbedder
-        from papersearch.translate import get_translator
 
         embedder = OllamaEmbedder(model=rag_embed_model.strip() or "bge-m3")
         try:
             llm = get_translator(engine=rag_engine, api_key=rag_api_key, model=rag_model)
         except ValueError as exc:
             st.error(str(exc))
+            st.session_state.rag_messages.append(
+                {"role": "assistant", "content": f"⚠️ {exc}", "sources": []}
+            )
             return
         if not embedder.available():
-            st.error(f"embedding 模型 {embedder.model} 不可用，请先运行: ollama pull {embedder.model}")
+            err = f"embedding 模型 {embedder.model} 不可用，请先运行: ollama pull {embedder.model}"
+            st.error(err)
+            st.session_state.rag_messages.append(
+                {"role": "assistant", "content": f"⚠️ {err}", "sources": []}
+            )
             return
         if not llm.available():
-            st.error("问答引擎不可用（Ollama 未启动？模型未安装？）")
+            err = "问答引擎不可用（Ollama 未启动？模型未安装？线上 Demo 无本地 Ollama，请本地运行）"
+            st.error(err)
+            st.session_state.rag_messages.append(
+                {"role": "assistant", "content": f"⚠️ {err}", "sources": []}
+            )
             return
-        with st.spinner("检索相关论文片段并生成回答（本地模型可能需要一点时间）..."):
+        with st.spinner("检索相关论文片段并生成回答..."):
             try:
                 answer = ask(
                     question.strip(), db_path=db_path,
@@ -428,12 +622,15 @@ def _render_rag_tab() -> None:
                 )
             except RagError as exc:
                 st.error(str(exc))
+                st.session_state.rag_messages.append(
+                    {"role": "assistant", "content": f"⚠️ {exc}", "sources": []}
+                )
                 return
-        st.markdown("---")
-        st.markdown("### 📝 回答")
+
         st.markdown(answer.answer)
+        sources_payload = []
         if answer.sources:
-            with st.expander(f"📎 引用来源（{len(answer.sources)} 个片段）", expanded=True):
+            with st.expander(f"📎 引用来源（{len(answer.sources)} 个片段）", expanded=False):
                 for i, src in enumerate(answer.sources, 1):
                     st.markdown(
                         f"**[{i}] {src.paper.title}**  "
@@ -441,13 +638,23 @@ def _render_rag_tab() -> None:
                     )
                     st.markdown(f"`{src.paper.file_path}`")
                     st.markdown(f"> {src.text[:400]}")
-                    st.markdown("---")
-    elif not question.strip():
-        st.info("输入问题开始问答。示例：「综述里提到的图神经网络有哪些应用？」")
+                    if i < len(answer.sources):
+                        st.markdown("---")
+                    sources_payload.append({
+                        "title": src.paper.title,
+                        "authors": src.paper.authors_text,
+                        "year": src.paper.year_text,
+                        "score": src.score,
+                        "file_path": src.paper.file_path,
+                        "text": src.text,
+                    })
+        st.session_state.rag_messages.append(
+            {"role": "assistant", "content": answer.answer, "sources": sources_payload}
+        )
 
 
 # ----------------------------------------------------------------------
-# 主区域：Tab 切换（论文检索 / PDF 翻译 / 本地文献库 / 论文问答）
+# 主区域：Tab 切换
 # ----------------------------------------------------------------------
 tab_search, tab_pdf, tab_library, tab_rag = st.tabs(
     ["🔍 论文检索", "📄 PDF 整篇翻译", "📚 本地文献库", "💬 论文问答"]
@@ -464,3 +671,18 @@ with tab_library:
 
 with tab_rag:
     _render_rag_tab()
+
+# ----------------------------------------------------------------------
+# 页脚
+# ----------------------------------------------------------------------
+st.markdown(
+    f"""
+    <div class="ps-footer">
+      PaperSearch v{__version__} ·
+      <a href="https://github.com/Ub0702/papersearch-nwu" target="_blank">GitHub</a> ·
+      <a href="https://pypi.org/project/papersearch-nwu/" target="_blank">PyPI</a> ·
+      MIT License
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
