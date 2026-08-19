@@ -41,6 +41,10 @@ class Translator(ABC):
     def translate(self, text: str) -> str:
         """把英文文本翻译为简体中文。"""
 
+    def chat(self, system: str, user: str) -> str:
+        """对话能力（RAG 问答用）。默认不支持，由具体引擎实现。"""
+        raise NotImplementedError(f"引擎 {self.name} 不支持对话（RAG 问答），请换用 ollama / openai")
+
     def available(self) -> bool:
         return True
 
@@ -73,6 +77,19 @@ class OllamaTranslator(Translator):
         resp.raise_for_status()
         return resp.json().get("response", "").strip()
 
+    def chat(self, system: str, user: str) -> str:
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "stream": False,
+        }
+        resp = requests.post(f"{self.base_url}/api/chat", json=payload, timeout=300)
+        resp.raise_for_status()
+        return resp.json().get("message", {}).get("content", "").strip()
+
 
 class OpenAITranslator(Translator):
     """OpenAI 兼容引擎：支持 OpenAI / DeepSeek / 通义 / 任何兼容服务。"""
@@ -90,21 +107,30 @@ class OpenAITranslator(Translator):
         self.base_url = base_url.rstrip("/")
 
     def translate(self, text: str) -> str:
+        resp = self._chat_request(SYSTEM_PROMPT, text)
+        return resp["choices"][0]["message"]["content"].strip()
+
+    def chat(self, system: str, user: str) -> str:
+        resp = self._chat_request(system, user)
+        return resp["choices"][0]["message"]["content"].strip()
+
+    def _chat_request(self, system: str, user: str) -> dict:
+        """发送 chat/completions 请求并返回完整 JSON（translate 与 chat 共用）。"""
         resp = requests.post(
             f"{self.base_url}/chat/completions",
             headers={"Authorization": f"Bearer {self.api_key}"},
             json={
                 "model": self.model,
                 "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": text},
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
                 ],
                 "temperature": 0.2,
             },
             timeout=120,
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"].strip()
+        return resp.json()
 
 
 class DeepLTranslator(Translator):

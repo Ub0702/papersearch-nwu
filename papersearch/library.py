@@ -386,10 +386,19 @@ def remove_paper(
     paper_id: int,
     db_path: str | Path | None = None,
 ) -> bool:
-    """从文献库删除记录（不删除磁盘上的 PDF 文件）。"""
+    """从文献库删除记录（不删除磁盘上的 PDF 文件）。
+
+    同时级联删除该论文的向量分块（chunks 表），避免残留孤儿数据。
+    """
     conn = _connect(db_path)
     try:
         cur = conn.execute("DELETE FROM papers WHERE id = ?", (paper_id,))
+        if cur.rowcount > 0:
+            try:
+                # SQLite 外键默认不启用，手动级联删除向量分块（表可能不存在）
+                conn.execute("DELETE FROM chunks WHERE paper_id = ?", (paper_id,))
+            except sqlite3.OperationalError:
+                pass  # 从未建立过向量索引，无 chunks 表
         conn.commit()
         return cur.rowcount > 0
     finally:

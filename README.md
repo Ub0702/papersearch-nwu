@@ -20,6 +20,8 @@ PaperSearch 解决研究生/本科生的文献阅读痛点：查文献要跨多�
 - **可插拔翻译引擎**：默认本地 Ollama（免费离线），支持任意 OpenAI 兼容 API（DeepSeek/通义/vLLM）与 DeepL
 - **整篇 PDF 翻译**：上传/指定 PDF，保留排版与公式输出纯译文 + 双语对照（基于 PDFMathTranslate）
 - **本地文献库管理**：扫描文件夹导入 PDF（SQLite 存储），自动提取标题/作者/年份，库内全文搜索秒级定位
+- **语义检索**：本地向量索引（Ollama + bge-m3），用自然语言找文献，不依赖关键词精确匹配
+- **RAG 论文问答**：基于文献库内容回答问题并附引用来源，让论文"开口说话"
 - **双语对照输出**：Markdown / HTML，逐段原文 + 译文对照，公式与引用原样保留
 - **两种入口**：命令行 CLI + Streamlit Web UI
 - **pip 一键安装**：`pip install papersearch-nwu`，30 秒上手
@@ -69,6 +71,12 @@ papersearch pdf paper.pdf --engine openai --model gpt-4o-mini  # 换在线引擎
 papersearch library scan ~/papers              # 扫描文件夹，导入 PDF 论文
 papersearch library search "graph neural"      # 库内全文搜索（标题/作者/摘要/全文）
 papersearch library list                       # 列出全部论文
+
+# 语义检索 + RAG 问答（先建立向量索引，需要 Ollama + bge-m3）
+ollama pull bge-m3                             # 一次性：下载 embedding 模型
+papersearch library index                      # 为文献库建立向量索引
+papersearch library search "图神经网络方法" --semantic  # 语义搜索（支持中文自然语言）
+papersearch library ask "这些论文里关于 GNN 的核心方法是什么？"  # 基于论文内容问答（RAG）
 ```
 
 ### 方式二：源码运行（开发/自定义）
@@ -92,6 +100,11 @@ python -m papersearch "medical image segmentation" --translate
 setx HTTPS_PROXY http://127.0.0.1:7897   # Windows，端口换成你的代理端口
 setx HTTP_PROXY  http://127.0.0.1:7897
 # 然后完全退出 Ollama（含托盘图标）再重新打开，最后 ollama pull qwen2.5:7b
+
+# 3.2 语义检索 / RAG 问答需要额外的 embedding 模型（多语言，中文提问检索英文论文效果好）
+ollama pull bge-m3
+python -m papersearch library index                     # 建立向量索引
+python -m papersearch library ask "论文里用什么方法？"  # RAG 问答
 
 # 4. 使用 OpenAI 兼容 API
 export PAPERSEARCH_API_KEY=sk-xxx        # Windows: set PAPERSEARCH_API_KEY=sk-xxx
@@ -159,13 +172,16 @@ streamlit run app.py
 | 子命令 | 说明 |
 |---|---|
 | `scan <dir>` | 扫描文件夹导入 PDF 论文（`--no-recursive` 只扫顶层；`--db` 指定数据库） |
-| `search <query>` | 库内全文搜索，匹配标题/作者/摘要/全文，按年份倒序 |
+| `index` | 建立向量索引（语义检索与 RAG 前置步骤；`--reindex` 清空重建；`--embed-model` 指定 embedding 模型） |
+| `search <query>` | 库内搜索：默认全文搜索（标题/作者/摘要/全文，按年份倒序）；加 `--semantic` 切换语义搜索 |
+| `ask <question>` | RAG 问答：基于文献库内容回答并附引用来源（`--top-k` 参考片段数；`--engine` 回答引擎） |
 | `list` | 列出全部论文（按入库时间倒序，`--limit` 控制条数） |
 | `info <id>` | 查看单篇论文详情（摘要、arXiv ID 等） |
-| `remove <id>` | 从文献库删除记录（不删除磁盘文件） |
+| `remove <id>` | 从文献库删除记录（不删除磁盘文件，级联清除向量分块） |
 | `stats` | 文献库统计信息 |
 
 > 数据默认存 `~/.papersearch/library.db`。文献库依赖 PyMuPDF，随核心包一起安装，开箱即用。
+> 语义检索与 RAG 依赖本地 Ollama（需 `ollama pull bge-m3` 下载 embedding 模型），向量与检索实现零额外依赖（SQLite + numpy 余弦相似度）。
 
 ## 架构
 
@@ -178,11 +194,13 @@ streamlit run app.py
 排版层  Markdown / HTML 双语对照                     （output.py）
    ↓   PDF 整篇翻译（pdf_translate.py，子进程调用 pdf2zh）
 文献库  本地 PDF 扫描 + SQLite 存储 + 元数据提取 + 全文搜索（library.py）
+语义层  分块 + Ollama embedding（bge-m3）+ 余弦相似度 Top-K（embeddings.py / rag.py）
+   ↓   RAG 问答：检索片段 -> 拼 prompt -> LLM 回答 + 引用来源
 入口    CLI (cli.py) / Streamlit UI (app.py)
 ```
 
 **新增数据源**：继承 `Source` 实现 `search()`，在 `search_all()` 中注册即可。
-**新增翻译引擎**：继承 `Translator` 实现 `translate()`，在 `get_translator()` 中注册即可。
+**新增翻译引擎**：继承 `Translator` 实现 `translate()`（可选 `chat()` 支持 RAG 问答），在 `get_translator()` 中注册即可。
 
 ### 环境变量
 
@@ -213,7 +231,8 @@ python -m papersearch "your query" --translate --glossary my_glossary.json
 - [x] M2：CLI + Web UI 双语对照
 - [x] M3：整篇 PDF 翻译（集成 PDFMathTranslate，保留公式排版）
 - [x] M4：本地文献库管理（扫描导入 + 元数据提取 + 库内全文搜索，SQLite 存储）
-- [ ] M5：语义检索（向量索引）与 RAG 问答
+- [x] M5：语义检索（本地向量索引）与 RAG 问答（引用来源）
+- [ ] 下一步：Web UI 演示截图、GitHub Release 说明、模型轻量化（如接入更小的 embedding）
 
 ## 测试
 

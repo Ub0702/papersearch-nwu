@@ -6,7 +6,8 @@
 功能：
 - 论文检索：输入关键词 -> 聚合检索 -> 逐篇查看中英双语摘要，可导出 Markdown。
 - PDF 翻译：上传 PDF -> 整篇翻译（保留排版与公式，需本地安装 pdf2zh）。
-- 本地文献库：扫描本地 PDF 建立 SQLite 文献库，元数据提取 + 全文搜索。
+- 本地文献库：扫描本地 PDF 建立 SQLite 文献库，元数据提取 + 全文搜索 + 语义搜索。
+- 论文问答：基于文献库内容 RAG 问答（需要先建立向量索引，Ollama 拉取 bge-m3）。
 """
 
 from __future__ import annotations
@@ -232,7 +233,7 @@ def _render_library_tab() -> None:
     )
 
     st.title("📚 本地文献库")
-    st.caption("扫描本地 PDF 论文建立文献库（SQLite），自动提取标题/作者/年份，支持库内全文搜索。")
+    st.caption("扫描本地 PDF 论文建立文献库（SQLite），自动提取标题/作者/年份，支持全文搜索与语义搜索。")
 
     db_path = st.text_input("数据库路径", value=str(default_db_path()), key="lib_db_path")
 
@@ -266,22 +267,80 @@ def _render_library_tab() -> None:
                     for err in result.errors[:10]:
                         st.caption(f"⚠️ {err}")
 
+    # --- 向量索引（语义检索 / RAG 前置） ---
+    with st.expander("🧠 向量索引（语义检索与问答的前置步骤）"):
+        st.caption(
+            "把论文全文分块并向量化（本地 Ollama + bge-m3）。"
+            "第一次使用需要先 `ollama pull bge-m3`。索引后即可用语义搜索和论文问答。"
+        )
+        c1, c2 = st.columns([1, 1])
+        embed_model = c1.text_input("embedding 模型", value="bge-m3", key="lib_embed_model")
+        reindex = c2.checkbox("重建索引（清空旧的）", key="lib_reindex")
+        if st.button("⚡ 建立向量索引", type="primary"):
+            from papersearch.embeddings import EmbeddingError, OllamaEmbedder
+            from papersearch.rag import RagError, index_papers
+
+            embedder = OllamaEmbedder(model=embed_model.strip() or "bge-m3")
+            if not embedder.available():
+                st.error(f"embedding 模型 {embedder.model} 不可用，请先运行: ollama pull {embedder.model}")
+            else:
+                idx_progress = st.progress(0.0, text="准备索引...")
+
+                def _on_idx(done: int, total: int, title: str) -> None:
+                    idx_progress.progress(done / max(total, 1), text=f"索引中 ({done}/{total}): {title[:40]}")
+
+                try:
+                    result = index_papers(
+                        db_path=db_path, embedder=embedder,
+                        reindex=reindex, progress=_on_idx,
+                    )
+                except RagError as exc:
+                    st.error(str(exc))
+                else:
+                    idx_progress.empty()
+                    st.success(result.summary())
+                    for err in result.failed[:10]:
+                        st.caption(f"⚠️ {err}")
+
     # --- 搜索 ---
+    c_sem, _ = st.columns([1, 5])
+    semantic = c_sem.checkbox("🧠 语义搜索", value=False, key="lib_semantic",
+                              help="按语义相关度检索（需要先建立向量索引）")
     query = st.text_input(
-        "🔎 库内全文搜索",
-        placeholder="输入关键词，匹配标题/作者/摘要/全文；留空列出全部",
+        "🔎 库内搜索",
+        placeholder="输入关键词或问题；语义搜索时用自然语言描述你想找的内容",
         key="lib_query",
     )
 
     # --- 列表 ---
     try:
         if query.strip():
-            papers = search_library(query.strip(), db_path=db_path, limit=100)
-            st.caption(f"搜索「{query.strip()}」命中 {len(papers)} 篇（按年份倒序）")
+            if semantic:
+                from papersearch.embeddings import OllamaEmbedder
+                from papersearch.rag import RagError, semantic_search
+
+                embedder = OllamaEmbedder(model=st.session_state.get("lib_embed_model", "bge-m3").strip() or "bge-m3")
+                hits = semantic_search(query.strip(), db_path=db_path, embedder=embedder, top_k=5)
+                st.caption(f"语义搜索「{query.strip()}」Top {len(hits)} 命中（相似度从高到低）")
+                for i, hit in enumerate(hits, 1):
+                    with st.expander(
+                        f"[{i}] {hit.paper.title}  ({hit.paper.year_text} · 相似度 {hit.score:.3f})",
+                        expanded=(i == 1),
+                    ):
+                        st.markdown(f"**作者**: {hit.paper.authors_text}")
+                        st.markdown(f"**文件**: `{hit.paper.file_path}`")
+                        st.markdown(f"**命中片段**: {hit.snippet}")
+                papers = []
+            else:
+                papers = search_library(query.strip(), db_path=db_path, limit=100)
+                st.caption(f"搜索「{query.strip()}」命中 {len(papers)} 篇（按年份倒序）")
         else:
             papers = list_papers(db_path=db_path, limit=200)
             st.caption(f"共 {len(papers)} 篇（按入库时间倒序，仅显示前 200 篇）")
     except LibraryError as exc:
+        st.error(str(exc))
+        papers = []
+    except RagError as exc:
         st.error(str(exc))
         papers = []
 
@@ -322,9 +381,77 @@ def _render_library_tab() -> None:
 
 
 # ----------------------------------------------------------------------
-# 主区域：Tab 切换（论文检索 / PDF 翻译 / 本地文献库）
+# 论文问答 Tab（RAG）
 # ----------------------------------------------------------------------
-tab_search, tab_pdf, tab_library = st.tabs(["🔍 论文检索", "📄 PDF 整篇翻译", "📚 本地文献库"])
+def _render_rag_tab() -> None:
+    from papersearch.library import LibraryError, default_db_path
+    from papersearch.rag import RagError, ask
+
+    st.title("💬 论文问答（RAG）")
+    st.caption("基于本地文献库的内容回答你的问题，并附引用来源（需要先建立向量索引）。")
+
+    db_path = st.text_input("数据库路径", value=str(default_db_path()), key="rag_db_path")
+
+    # 问答引擎配置（默认复用侧边栏翻译引擎；DeepL 不支持对话）
+    with st.expander("⚙️ 问答引擎设置", expanded=False):
+        c1, c2, c3 = st.columns([1, 1, 2])
+        rag_engine = c1.selectbox("引擎", ["ollama", "openai"], index=0)
+        rag_model = c2.text_input("模型", value="qwen2.5:7b" if rag_engine == "ollama" else "gpt-4o-mini")
+        rag_api_key = c3.text_input("API Key（openai）", type="password",
+                                    value=os.environ.get("PAPERSEARCH_API_KEY", "")) if rag_engine == "openai" else None
+    rag_embed_model = st.text_input("embedding 模型", value="bge-m3", key="rag_embed_model")
+
+    question = st.text_input("你的问题", placeholder="e.g. 这些论文里关于图神经网络的核心方法是什么？")
+    top_k = st.slider("参考片段数", min_value=1, max_value=10, value=5)
+
+    if st.button("💡 提问", type="primary") and question.strip():
+        from papersearch.embeddings import OllamaEmbedder
+        from papersearch.translate import get_translator
+
+        embedder = OllamaEmbedder(model=rag_embed_model.strip() or "bge-m3")
+        try:
+            llm = get_translator(engine=rag_engine, api_key=rag_api_key, model=rag_model)
+        except ValueError as exc:
+            st.error(str(exc))
+            return
+        if not embedder.available():
+            st.error(f"embedding 模型 {embedder.model} 不可用，请先运行: ollama pull {embedder.model}")
+            return
+        if not llm.available():
+            st.error("问答引擎不可用（Ollama 未启动？模型未安装？）")
+            return
+        with st.spinner("检索相关论文片段并生成回答（本地模型可能需要一点时间）..."):
+            try:
+                answer = ask(
+                    question.strip(), db_path=db_path,
+                    embedder=embedder, llm=llm, top_k=top_k,
+                )
+            except RagError as exc:
+                st.error(str(exc))
+                return
+        st.markdown("---")
+        st.markdown("### 📝 回答")
+        st.markdown(answer.answer)
+        if answer.sources:
+            with st.expander(f"📎 引用来源（{len(answer.sources)} 个片段）", expanded=True):
+                for i, src in enumerate(answer.sources, 1):
+                    st.markdown(
+                        f"**[{i}] {src.paper.title}**  "
+                        f"({src.paper.authors_text} · {src.paper.year_text} · 相似度 {src.score:.3f})"
+                    )
+                    st.markdown(f"`{src.paper.file_path}`")
+                    st.markdown(f"> {src.text[:400]}")
+                    st.markdown("---")
+    elif not question.strip():
+        st.info("输入问题开始问答。示例：「综述里提到的图神经网络有哪些应用？」")
+
+
+# ----------------------------------------------------------------------
+# 主区域：Tab 切换（论文检索 / PDF 翻译 / 本地文献库 / 论文问答）
+# ----------------------------------------------------------------------
+tab_search, tab_pdf, tab_library, tab_rag = st.tabs(
+    ["🔍 论文检索", "📄 PDF 整篇翻译", "📚 本地文献库", "💬 论文问答"]
+)
 
 with tab_search:
     _render_search_tab()
@@ -334,3 +461,6 @@ with tab_pdf:
 
 with tab_library:
     _render_library_tab()
+
+with tab_rag:
+    _render_rag_tab()
